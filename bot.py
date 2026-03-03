@@ -8,7 +8,7 @@ from telebot import types
 
 # ================== CONFIG ==================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = os.getenv("8469845092:AAFTXc1IfoH4NKupnGp0WxQSgbvTIo42oW0")
 ADMIN_ID = 7743679187
 
 API_URL = "https://smmgen.com/api/v2"

@@ -1,16 +1,16 @@
 import telebot
-import os
-import json
 import requests
+import json
+import os
 from flask import Flask
 from telebot import types
 import threading
 
 # ================== CONFIG ==================
 
-BOT_TOKEN = os.getenv("8469845092:AAFTXc1IfoH4NKupnGp0WxQSgbvTIo42oW0")
-API_KEY = os.getenv("eadb5bf6d39da590d9820687b2edad06")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+BOT_TOKEN = "8469845092:AAFTXc1IfoH4NKupnGp0WxQSgbvTIo42oW0"
+API_KEY = "eadb5bf6d39da590d9820687b2edad06"
+ADMIN_ID = 7743679187
 
 API_URL = "https://smmgen.com/api/v2"
 
@@ -24,7 +24,6 @@ ORDER_CHANNEL = "@Tuhinonli"
 JOIN_NOTIFY_CHANNEL = "@Tuhininco"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
-
 # ================== DATABASE ==================
 
 def load_users():

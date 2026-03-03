@@ -1,40 +1,121 @@
 import telebot
 import requests
 import json
-import os
 from flask import Flask
-from telebot import types
 import threading
 
-# ================== CONFIG ==================
+# ================= CONFIG =================
 
-BOT_TOKEN = "8469845092:AAFTXc1IfoH4NKupnGp0WxQSgbvTIo42oW0"
+BOT_TOKEN = "8469845092:AAEjppWea01-utFvBZERB-FNBAoydZT_glM"
 API_KEY = "eadb5bf6d39da590d9820687b2edad06"
 ADMIN_ID = 7743679187
-
 API_URL = "https://smmgen.com/api/v2"
 
-CHANNELS = [
-    "@smmpenel009",
-    "@Tuhinonli",
-    "@Tuhininco"
-]
-
+CHANNELS = ["@smmpenel009", "@Tuhinonli", "@Tuhininco"]
 ORDER_CHANNEL = "@Tuhinonli"
-JOIN_NOTIFY_CHANNEL = "@Tuhininco"
+
+# ==========================================
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
-# ================== DATABASE ==================
+app = Flask(__name__)
 
-def load_users():
+users = {}
+
+# ================= FORCE JOIN =================
+
+def check_join(user_id):
+    for channel in CHANNELS:
+        try:
+            member = bot.get_chat_member(channel, user_id)
+            if member.status in ["left", "kicked"]:
+                return False
+        except:
+            return False
+    return True
+
+# ================= START =================
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    user_id = message.chat.id
+
+    if not check_join(user_id):
+        bot.send_message(user_id,
+                         "❌ আগে সব চ্যানেল জয়েন করো:\n\n"
+                         "@smmpenel009\n@Tuhinonli\n@Tuhininco")
+        return
+
+    if str(user_id) not in users:
+        users[str(user_id)] = {"balance": 0}
+
+    bot.send_message(user_id,
+                     "✅ Welcome\n\n"
+                     "Send order like:\n"
+                     "<code>service_id|link|quantity</code>")
+
+# ================= ORDER =================
+
+@bot.message_handler(func=lambda m: True)
+def order(message):
+    user_id = str(message.chat.id)
+
+    if not check_join(message.chat.id):
+        bot.send_message(message.chat.id, "❌ Join all channels first.")
+        return
+
     try:
-        with open("users.json", "r") as f:
-            return json.load(f)
-    except:
-        return {}
+        service, link, quantity = message.text.split("|")
+        quantity = int(quantity)
 
-def save_users(data):
-    with open("users.json", "w") as f:
+        price = quantity * 1
+
+        if users[user_id]["balance"] < price:
+            bot.send_message(message.chat.id, "❌ Not enough balance.")
+            return
+
+        data = {
+            "key": API_KEY,
+            "action": "add",
+            "service": service.strip(),
+            "link": link.strip(),
+            "quantity": quantity
+        }
+
+        response = requests.post(API_URL, data=data).json()
+
+        if "order" in response:
+            order_id = response["order"]
+            users[user_id]["balance"] -= price
+
+            bot.send_message(message.chat.id,
+                             f"✅ Order Success\nOrder ID: {order_id}")
+
+            bot.send_message(ORDER_CHANNEL,
+                             f"📦 New Order\n"
+                             f"User: {user_id}\n"
+                             f"Service: {service}\n"
+                             f"Qty: {quantity}\n"
+                             f"Panel ID: {order_id}")
+        else:
+            bot.send_message(message.chat.id, f"❌ Panel Error:\n{response}")
+
+    except:
+        bot.send_message(message.chat.id,
+                         "❌ Format:\nservice_id|link|quantity")
+
+# ================= RENDER KEEP ALIVE =================
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run():
+    app.run(host="0.0.0.0", port=10000)
+
+threading.Thread(target=run).start()
+
+print("Bot Started Successfully...")
+bot.infinity_polling(skip_pending=True)    with open("users.json", "w") as f:
         json.dump(data, f)
 
 users = load_users()

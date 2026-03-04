@@ -1,19 +1,36 @@
 import telebot
 import requests
+import json
+import os
 from flask import Flask
 import threading
+from telebot import types
 
+# ========= CONFIG =========
 BOT_TOKEN = "8469845092:AAEjppWea01-utFvBZERB-FNBAoydZT_glM"
 API_KEY = "eadb5bf6d39da590d9820687b2edad06"
 ADMIN_ID = 7743679187
 API_URL = "https://smmgen.com/api/v2"
+# ==========================
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask(__name__)
 
-users = {}
+# ========= USER SYSTEM =========
 
-# ================= START =================
+def load_users():
+    if not os.path.exists("users.json"):
+        return {}
+    with open("users.json", "r") as f:
+        return json.load(f)
+
+def save_users(data):
+    with open("users.json", "w") as f:
+        json.dump(data, f, indent=4)
+
+users = load_users()
+
+# ========= START =========
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -21,8 +38,9 @@ def start(message):
 
     if user_id not in users:
         users[user_id] = {"balance": 0}
+        save_users(users)
 
-    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("💰 Add Balance", "📦 New Order")
     markup.row("👤 My Account")
 
@@ -30,22 +48,65 @@ def start(message):
                      "✅ Welcome to SMM Panel Bot",
                      reply_markup=markup)
 
-# ================= ACCOUNT =================
+# ========= ACCOUNT =========
 
 @bot.message_handler(func=lambda m: m.text == "👤 My Account")
 def account(message):
-    user = users.get(str(message.chat.id))
-    bot.send_message(message.chat.id,
-                     f"💰 Balance: {user['balance']} ৳")
+    user_id = str(message.chat.id)
+    balance = users.get(user_id, {}).get("balance", 0)
 
-# ================= ADD BALANCE =================
+    bot.send_message(message.chat.id,
+                     f"💰 Your Balance: {balance} ৳")
+
+# ========= ADD BALANCE =========
 
 @bot.message_handler(func=lambda m: m.text == "💰 Add Balance")
 def add_balance(message):
     bot.send_message(message.chat.id,
                      "Send payment like:\nTxnID | Amount")
 
-# ================= NEW ORDER =================
+@bot.message_handler(func=lambda m: "|" in m.text)
+def handle_payment(message):
+    try:
+        txn, amount = message.text.split("|")
+        amount = int(amount.strip())
+
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton(
+            "✅ Approve",
+            callback_data=f"approve_{message.chat.id}_{amount}"
+        ))
+
+        bot.send_message(
+            ADMIN_ID,
+            f"💳 Payment Request\nUser: {message.chat.id}\nTxnID: {txn}\nAmount: {amount}",
+            reply_markup=markup
+        )
+
+        bot.send_message(message.chat.id,
+                         "⏳ Waiting for Admin Approval")
+
+    except:
+        bot.send_message(message.chat.id,
+                         "❌ Wrong format!\nUse:\nTxnID | Amount")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("approve_"))
+def approve_payment(call):
+    _, user_id, amount = call.data.split("_")
+    user_id = str(user_id)
+    amount = int(amount)
+
+    if user_id not in users:
+        users[user_id] = {"balance": 0}
+
+    users[user_id]["balance"] += amount
+    save_users(users)
+
+    bot.send_message(user_id,
+                     f"💰 {amount} ৳ Added Successfully!")
+    bot.answer_callback_query(call.id, "Approved!")
+
+# ========= NEW ORDER =========
 
 @bot.message_handler(func=lambda m: m.text == "📦 New Order")
 def new_order(message):
@@ -59,26 +120,31 @@ def process_order(message):
     try:
         service, link, quantity = message.text.split("|")
         quantity = int(quantity.strip())
+        service = service.strip()
+        link = link.strip()
 
         price = quantity * 1
 
         if users[user_id]["balance"] < price:
-            bot.send_message(message.chat.id, "❌ Not enough balance!")
+            bot.send_message(message.chat.id,
+                             "❌ Not enough balance!")
             return
 
         payload = {
             "key": API_KEY,
             "action": "add",
-            "service": service.strip(),
-            "link": link.strip(),
+            "service": service,
+            "link": link,
             "quantity": quantity
         }
 
-        response = requests.post(API_URL, data=payload).json()
+        response = requests.post(API_URL, data=payload, timeout=20).json()
 
         if "order" in response:
             order_id = response["order"]
+
             users[user_id]["balance"] -= price
+            save_users(users)
 
             bot.send_message(message.chat.id,
                              f"✅ Order Successful!\nOrder ID: {order_id}")
@@ -86,11 +152,11 @@ def process_order(message):
             bot.send_message(message.chat.id,
                              f"❌ Panel Error:\n{response}")
 
-    except:
+    except Exception as e:
         bot.send_message(message.chat.id,
                          "❌ Wrong format!\nUse:\nServiceID | Link | Quantity")
 
-# ================= FLASK =================
+# ========= FLASK KEEP ALIVE =========
 
 @app.route('/')
 def home():
@@ -101,5 +167,5 @@ def run():
 
 threading.Thread(target=run).start()
 
-print("Bot Started...")
+print("Bot Started Successfully")
 bot.infinity_polling()

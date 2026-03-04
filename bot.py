@@ -1,238 +1,223 @@
 import telebot
-import requests
+from telebot import types
 import json
 import os
-from flask import Flask
-import threading
-from telebot import types
+import requests
 
-# ========= CONFIG =========
-BOT_TOKEN = "8469845092:AAEjppWea01-utFvBZERB-FNBAoydZT_glM"
-API_KEY = "eadb5bf6d39da590d9820687b2edad06"
-API_URL = "https://smmgen.com/api/v2"
+TOKEN = "8469845092:AAEjppWea01-utFvBZERB-FNBAoydZT_glM"
+ADMIN_ID = 7743679187
 
-MAIN_CHANNEL = "@smmpenel009"
-JOIN_DEPOSIT_CHANNEL = "@Tuhinonli"
+JOIN_CHANNELS = ["@smmpenel009", "@Tuhininco"]
+NOTICE_CHANNEL = "@Tuhinonli"
+DEPOSIT_CHANNEL = "@Tuhinonli"
 ORDER_CHANNEL = "@Tuhininco"
 
-CHANNELS = [MAIN_CHANNEL]
-# ==========================
+BKASH_NUMBER = "01904155168"
+MIN_DEPOSIT = 2
 
-bot = telebot.TeleBot(BOT_TOKEN)
-app = Flask(__name__)
+API_URL = "https://smmgen.com/api/v2"
+API_KEY = "eadb5bf6d39da590d9820687b2edad06"
 
-# ========= USER DATABASE =========
+SERVICES = {
+    "👁 TikTok Views": 17293,
+    "❤️ TikTok Likes": 16963,
+    "👥 TikTok Followers": 12854
+}
 
-def load_users():
-    if not os.path.exists("users.json"):
+bot = telebot.TeleBot(TOKEN)
+DATA_FILE = "data.json"
+
+# ================= DATABASE =================
+
+def load_data():
+    if not os.path.exists(DATA_FILE):
         return {}
-    with open("users.json", "r") as f:
+    with open(DATA_FILE, "r") as f:
         return json.load(f)
 
-def save_users(data):
-    with open("users.json", "w") as f:
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-users = load_users()
-
-# ========= FORCE JOIN =========
+# ================= FORCE JOIN =================
 
 def check_join(user_id):
-    for channel in CHANNELS:
+    for ch in JOIN_CHANNELS:
         try:
-            member = bot.get_chat_member(channel, user_id)
-            if member.status not in ["member", "administrator", "creator"]:
+            member = bot.get_chat_member(ch, user_id)
+            if member.status in ["left", "kicked"]:
                 return False
         except:
             return False
     return True
 
-def join_button():
+def join_markup():
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(
-        "📢 Join Channel",
-        url=f"https://t.me/{MAIN_CHANNEL.replace('@','')}"
-    ))
+    for ch in JOIN_CHANNELS:
+        markup.add(types.InlineKeyboardButton(
+            f"📢 Join {ch}",
+            url=f"https://t.me/{ch.replace('@','')}"
+        ))
+    markup.add(types.InlineKeyboardButton("✅ Check", callback_data="check_join"))
     return markup
 
-# ========= START =========
+@bot.callback_query_handler(func=lambda c: c.data=="check_join")
+def verify_join(call):
+    if check_join(call.from_user.id):
+        bot.answer_callback_query(call.id,"✅ Verified")
+        bot.send_message(call.message.chat.id,"Now type /start")
+    else:
+        bot.answer_callback_query(call.id,"❌ Join All Channels First")
 
-@bot.message_handler(commands=['start'])
+# ================= START =================
+
+@bot.message_handler(commands=["start"])
 def start(message):
     user_id = str(message.chat.id)
+    data = load_data()
 
     if not check_join(message.chat.id):
-        bot.send_message(
-            message.chat.id,
-            "❌ আগে চ্যানেল জয়েন করো",
-            reply_markup=join_button()
-        )
+        bot.send_message(message.chat.id,"❌ আগে সব চ্যানেল জয়েন করো",reply_markup=join_markup())
         return
 
-    if user_id not in users:
-        users[user_id] = {"balance": 0}
-        save_users(users)
+    if user_id not in data:
+        data[user_id] = {"balance": 0,"ref_by": None}
 
-        bot.send_message(
-            JOIN_DEPOSIT_CHANNEL,
-            f"👤 New User Joined\nUser ID: {user_id}"
-        )
+        if len(message.text.split()) > 1:
+            ref = message.text.split()[1]
+            if ref in data and ref != user_id:
+                data[user_id]["ref_by"] = ref
+                data[ref]["balance"] += 0.050
+                bot.send_message(ref,"🎉 0.050 Tk referral bonus added!")
+
+        save_data(data)
+        bot.send_message(NOTICE_CHANNEL,f"🆕 New User Joined\nID: {user_id}")
+
+    main_menu(message.chat.id)
+
+# ================= MAIN MENU =================
+
+def main_menu(chat_id):
+    data = load_data()
+    balance = data[str(chat_id)]["balance"]
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row("💰 Add Balance")
-    markup.row("📦 New Order")
-    markup.row("👤 My Account")
+    markup.add("💰 Balance","💳 Deposit")
+    markup.add("📦 Order","👥 Refer")
 
+    bot.send_message(chat_id,f"👋 Welcome\n💰 Balance: {balance} Tk",reply_markup=markup)
+
+# ================= BALANCE =================
+
+@bot.message_handler(func=lambda m: m.text=="💰 Balance")
+def balance(message):
+    data = load_data()
+    bot.send_message(message.chat.id,f"💰 Balance: {data[str(message.chat.id)]['balance']} Tk")
+
+# ================= REFER =================
+
+@bot.message_handler(func=lambda m: m.text=="👥 Refer")
+def refer(message):
+    link = f"https://t.me/{bot.get_me().username}?start={message.chat.id}"
+    bot.send_message(message.chat.id,f"👥 Referral Link:\n{link}\nPer Referral = 0.050 Tk")
+
+# ================= DEPOSIT =================
+
+@bot.message_handler(func=lambda m: m.text=="💳 Deposit")
+def deposit(message):
     bot.send_message(
         message.chat.id,
-        "✅ Welcome to SMM Panel Bot",
-        reply_markup=markup
+        f"💳 Send Money To\nbKash: {BKASH_NUMBER}\nMinimum: {MIN_DEPOSIT} Tk\n\nSend:\nTxnID | Amount"
     )
+    bot.register_next_step_handler(message, deposit_trx)
 
-# ========= ACCOUNT =========
-
-@bot.message_handler(func=lambda m: m.text == "👤 My Account")
-def account(message):
-    if not check_join(message.chat.id):
-        bot.send_message(message.chat.id, "❌ আগে চ্যানেল জয়েন করো",
-                         reply_markup=join_button())
-        return
-
-    user_id = str(message.chat.id)
-    balance = users.get(user_id, {}).get("balance", 0)
-
-    bot.send_message(message.chat.id, f"💰 Balance: {balance} ৳")
-
-# ========= DEPOSIT =========
-
-@bot.message_handler(func=lambda m: m.text == "💰 Add Balance")
-def deposit_instruction(message):
-    if not check_join(message.chat.id):
-        bot.send_message(message.chat.id, "❌ আগে চ্যানেল জয়েন করো",
-                         reply_markup=join_button())
-        return
-
-    bot.send_message(message.chat.id,
-                     "Send payment like:\nTxnID | Amount")
-
-@bot.message_handler(func=lambda m: "|" in m.text and m.text.count("|") == 1)
-def handle_deposit(message):
+def deposit_trx(message):
     try:
-        txn, amount = message.text.split("|")
-        txn = txn.strip()
-        amount = int(amount.strip())
-        user_id = str(message.chat.id)
+        trx, amount = message.text.split("|")
+        amount = float(amount.strip())
+
+        if amount < MIN_DEPOSIT:
+            bot.send_message(message.chat.id,f"❌ Minimum Deposit is {MIN_DEPOSIT} Tk")
+            return
 
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton(
-            "✅ Approve",
-            callback_data=f"approve_{user_id}_{amount}"
-        ))
+        markup.add(types.InlineKeyboardButton("✅ Approve",callback_data=f"approve_{message.chat.id}_{amount}"))
 
-        bot.send_message(
-            JOIN_DEPOSIT_CHANNEL,
-            f"💳 Deposit Request\nUser: {user_id}\nTxnID: {txn}\nAmount: {amount}",
-            reply_markup=markup
-        )
+        bot.send_message(DEPOSIT_CHANNEL,
+            f"💳 Deposit Request\nUser: {message.chat.id}\nTRX: {trx}\nAmount: {amount} Tk",
+            reply_markup=markup)
 
-        bot.send_message(user_id, "⏳ Deposit request sent!")
+        bot.send_message(message.chat.id,"⏳ Waiting for approval")
 
     except:
-        bot.send_message(message.chat.id,
-                         "❌ Format Wrong!\nUse:\nTxnID | Amount")
+        bot.send_message(message.chat.id,"❌ Format:\nTxnID | Amount")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("approve_"))
-def approve_deposit(call):
-    _, user_id, amount = call.data.split("_")
-    amount = int(amount)
-
-    if user_id not in users:
-        users[user_id] = {"balance": 0}
-
-    users[user_id]["balance"] += amount
-    save_users(users)
-
-    bot.send_message(user_id,
-                     f"💰 {amount} ৳ Added Successfully!")
-
-    bot.edit_message_text(
-        f"✅ Deposit Approved\nUser: {user_id}\nAmount: {amount}",
-        call.message.chat.id,
-        call.message.message_id
-    )
-
-    bot.answer_callback_query(call.id)
-
-# ========= ORDER =========
-
-@bot.message_handler(func=lambda m: m.text == "📦 New Order")
-def order_instruction(message):
-    if not check_join(message.chat.id):
-        bot.send_message(message.chat.id, "❌ আগে চ্যানেল জয়েন করো",
-                         reply_markup=join_button())
+@bot.callback_query_handler(func=lambda c: c.data.startswith("approve_"))
+def approve(call):
+    if call.from_user.id != ADMIN_ID:
         return
 
-    bot.send_message(message.chat.id,
-                     "Send order like:\nServiceID | Link | Quantity")
+    _, user_id, amount = call.data.split("_")
+    data = load_data()
+    data[user_id]["balance"] += float(amount)
+    save_data(data)
 
-@bot.message_handler(func=lambda m: m.text.count("|") == 2)
-def process_order(message):
+    bot.send_message(user_id,f"✅ {amount} Tk Added")
+    bot.edit_message_reply_markup(call.message.chat.id,call.message.message_id,None)
+
+# ================= ORDER =================
+
+@bot.message_handler(func=lambda m: m.text=="📦 Order")
+def order_menu(message):
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("👁 TikTok Views","❤️ TikTok Likes")
+    markup.add("👥 TikTok Followers","🔙 Back")
+    bot.send_message(message.chat.id,"Select Service",reply_markup=markup)
+
+@bot.message_handler(func=lambda m: m.text in SERVICES.keys())
+def service_select(message):
+    bot.send_message(message.chat.id,"Send:\nlink quantity\nExample:\nhttps://tiktok.com/... 1000")
+    bot.register_next_step_handler(message, process_order, message.text)
+
+def process_order(message, service_name):
     try:
-        service, link, quantity = message.text.split("|")
-        service = service.strip()
-        link = link.strip()
-        quantity = int(quantity.strip())
-
-        user_id = str(message.chat.id)
-
-        price = quantity * 1
-
-        if users[user_id]["balance"] < price:
-            bot.send_message(message.chat.id,
-                             "❌ Not enough balance!")
-            return
+        link, quantity = message.text.split()
+        service_id = SERVICES[service_name]
 
         payload = {
             "key": API_KEY,
             "action": "add",
-            "service": service,
+            "service": service_id,
             "link": link,
             "quantity": quantity
         }
 
-        response = requests.post(API_URL, data=payload).json()
+        r = requests.post(API_URL, data=payload)
+        result = r.json()
 
-        if "order" in response:
-            order_id = response["order"]
+        if "order" in result:
+            order_id = result["order"]
 
-            users[user_id]["balance"] -= price
-            save_users(users)
+            db = load_data()
+            db[str(message.chat.id)]["balance"] -= 1
+            save_data(db)
 
             bot.send_message(
                 ORDER_CHANNEL,
-                f"📦 New Order\nUser: {user_id}\nService: {service}\nQty: {quantity}\nOrderID: {order_id}"
+                f"📦 Order\nUser: {message.chat.id}\nService: {service_name}\nLink: {link}\nQty: {quantity}\nOrderID: {order_id}"
             )
 
-            bot.send_message(message.chat.id,
-                             f"✅ Order Successful!\nOrder ID: {order_id}")
+            bot.send_message(message.chat.id,"✅ Order Submitted")
+
         else:
-            bot.send_message(message.chat.id,
-                             f"❌ Panel Error:\n{response}")
+            bot.send_message(message.chat.id,"❌ API Error")
 
     except:
-        bot.send_message(message.chat.id,
-                         "❌ Format Wrong!\nUse:\nServiceID | Link | Quantity")
+        bot.send_message(message.chat.id,"❌ Invalid Format")
 
-# ========= FLASK =========
+@bot.message_handler(func=lambda m: m.text=="🔙 Back")
+def back(message):
+    main_menu(message.chat.id)
 
-@app.route('/')
-def home():
-    return "Bot Running"
-
-def run():
-    app.run(host="0.0.0.0", port=10000)
-
-threading.Thread(target=run).start()
-
-print("Bot Started Successfully")
+print("Bot Running...")
 bot.infinity_polling()
